@@ -80,6 +80,7 @@ hpa:
   memory:
   # average http requests per second per pod (k8s-prometheus-adapter)
   requests:
+  # average http requests per second per pod (k8s-prometheus-adapter
 
 # Redis address in the format tcp://<host>:<port>
 cache: ""
@@ -131,8 +132,8 @@ serviceMonitor:
 resources:
   limits:
   requests:
-    cpu: 1m
-    memory: 16Mi
+    cpu: 250m
+    memory: 512Mi
 
 nodeSelector: {}
 
