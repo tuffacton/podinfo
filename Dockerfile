@@ -6,9 +6,10 @@ RUN mkdir -p /podinfo/
 
 WORKDIR /podinfo
 
-COPY . .
-
+COPY go.mod go.sum ./
 RUN go mod download
+
+COPY . .
 
 RUN CGO_ENABLED=0 go build -ldflags "-s -w \
     -X github.com/stefanprodan/podinfo/pkg/version.REVISION=${REVISION}" \
@@ -33,11 +34,12 @@ RUN addgroup -S app \
 
 WORKDIR /home/app
 
-COPY --from=builder /podinfo/bin/podinfo .
+COPY --from=builder /podinfo/bin/podinfo ./bin/podinfo
 COPY --from=builder /podinfo/bin/podcli /usr/local/bin/podcli
-COPY ./ui ./ui
+COPY --from=builder /podinfo/ui ./ui
+
 RUN chown -R app:app ./
 
 USER app
 
-CMD ["./podinfo"]
+CMD ["./bin/podinfo"]
