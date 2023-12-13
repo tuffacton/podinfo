@@ -1,17 +1,26 @@
-# Multi-stage build for smaller final image
-FROM golang:1.21-alpine AS builder
+# Stage 1: Build
+FROM golang:1.21-alpine as builder
 
-WORKDIR /go/src/github.com/stefanprodan/podinfo
+ARG REVISION
 
-# Cache dependencies and build artifacts
-COPY go.mod go.sum ./
+WORKDIR /podinfo
+
+COPY go.mod .
+COPY go.sum .
+
 RUN go mod download
-RUN CGO_ENABLED=0 go build -o cmd/podinfo/podinfo -ldflags "-s -w -X github.com/stefanprodan/podinfo/pkg/version.REVISION=${REVISION}"
 
-# Separate build stage for the cli tool (optional if rarely used)
-RUN CGO_ENABLED=0 go build -o cmd/podcli/podcli -ldflags "-s -w -X github.com/stefanprodan/podinfo/pkg/version.REVISION=${REVISION}"
+COPY . .
 
-# Build final Alpine image
+RUN CGO_ENABLED=0 go build -ldflags "-s -w \
+    -X github.com/stefanprodan/podinfo/pkg/version.REVISION=${REVISION}" \
+    -a -o bin/podinfo cmd/podinfo/*
+
+RUN CGO_ENABLED=0 go build -ldflags "-s -w \
+    -X github.com/stefanprodan/podinfo/pkg/version.REVISION=${REVISION}" \
+    -a -o bin/podcli cmd/podcli/*
+
+# Stage 2: Final Image
 FROM alpine:3.18
 
 ARG BUILD_DATE
@@ -20,20 +29,18 @@ ARG REVISION
 
 LABEL maintainer="stefanprodan"
 
-# Pre-built dependencies
-RUN apk --no-cache add ca-certificates curl netcat-openbsd
+RUN addgroup -S app \
+    && adduser -S -G app app \
+    && apk --no-cache add \
+    ca-certificates curl netcat-openbsd
 
-# Copy cached binaries from builder stage
-COPY --from=builder /go/src/github.com/stefanprodan/podinfo/cmd/podinfo/podinfo ./bin/podinfo
-COPY --from=builder /go/src/github.com/stefanprodan/podinfo/cmd/podcli/podcli /usr/local/bin/podcli
+WORKDIR /home/app
 
-# Copy application files (not cached)
-COPY --from=builder /go/src/github.com/stefanprodan/podinfo/ui ./ui
-
-# Set user and permissions
+COPY --from=builder /podinfo/bin/podinfo .
+COPY --from=builder /podinfo/bin/podcli /usr/local/bin/podcli
+COPY --from=builder /podinfo/ui ./ui
 RUN chown -R app:app ./
+
 USER app
 
-# Run podinfo executable
-CMD ["./bin/podinfo"]
-
+CMD ["./podinfo"]
