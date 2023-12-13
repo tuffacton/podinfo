@@ -1,24 +1,17 @@
-FROM golang:1.21-alpine as builder
+# Multi-stage build for smaller final image
+FROM golang:1.21-alpine AS builder
 
-ARG REVISION
+WORKDIR /go/src/github.com/stefanprodan/podinfo
 
-RUN mkdir -p /podinfo/
-
-WORKDIR /podinfo
-
+# Cache dependencies and build artifacts
 COPY go.mod go.sum ./
 RUN go mod download
+RUN CGO_ENABLED=0 go build -o cmd/podinfo/podinfo -ldflags "-s -w -X github.com/stefanprodan/podinfo/pkg/version.REVISION=${REVISION}"
 
-COPY . .
+# Separate build stage for the cli tool (optional if rarely used)
+RUN CGO_ENABLED=0 go build -o cmd/podcli/podcli -ldflags "-s -w -X github.com/stefanprodan/podinfo/pkg/version.REVISION=${REVISION}"
 
-RUN CGO_ENABLED=0 go build -ldflags "-s -w \
-    -X github.com/stefanprodan/podinfo/pkg/version.REVISION=${REVISION}" \
-    -a -o bin/podinfo cmd/podinfo/*
-
-RUN CGO_ENABLED=0 go build -ldflags "-s -w \
-    -X github.com/stefanprodan/podinfo/pkg/version.REVISION=${REVISION}" \
-    -a -o bin/podcli cmd/podcli/*
-
+# Build final Alpine image
 FROM alpine:3.18
 
 ARG BUILD_DATE
@@ -27,19 +20,20 @@ ARG REVISION
 
 LABEL maintainer="stefanprodan"
 
-RUN addgroup -S app \
-    && adduser -S -G app app \
-    && apk --no-cache add \
-    ca-certificates curl netcat-openbsd
+# Pre-built dependencies
+RUN apk --no-cache add ca-certificates curl netcat-openbsd
 
-WORKDIR /home/app
+# Copy cached binaries from builder stage
+COPY --from=builder /go/src/github.com/stefanprodan/podinfo/cmd/podinfo/podinfo ./bin/podinfo
+COPY --from=builder /go/src/github.com/stefanprodan/podinfo/cmd/podcli/podcli /usr/local/bin/podcli
 
-COPY --from=builder /podinfo/bin/podinfo ./bin/podinfo
-COPY --from=builder /podinfo/bin/podcli /usr/local/bin/podcli
-COPY --from=builder /podinfo/ui ./ui
+# Copy application files (not cached)
+COPY --from=builder /go/src/github.com/stefanprodan/podinfo/ui ./ui
 
+# Set user and permissions
 RUN chown -R app:app ./
-
 USER app
 
+# Run podinfo executable
 CMD ["./bin/podinfo"]
+
